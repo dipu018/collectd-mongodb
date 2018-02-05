@@ -8,17 +8,22 @@ This plugin is a direct port of the MongoDB C plugin that will be part of collec
 
 * Collectd 4.9 or later (for the Python plugin)
 * Python 2.4 or later
-* MongoDB 2.4 or later
+* MongoDB 2.6 or later
 * PyMongo 3.x (**To use SSL/TLS, install Pymongo with TLS support by running `pip install pymongo[tls]`.**)
+
 # Configuration
 
 The plugin has some configuration options even though none are mandatory. This is done by passing parameters via the <Module> config section in your Collectd config. The following parameters are recognized:
 
-* User - the username for authentication
-* Password - the password for authentication
-* Host - hostname or IP address of the mongodb server defaults to 127.0.0.1
-* Port - the port of the mongodb server defaults to 27017
-* Database - the databases you want to monitor defaults to "admin". You can provide more than one database. Note that the first database _must_ be "admin", as it is used to perform a serverStatus()
+* `User` - the username for authentication
+* `Password` - the password for authentication
+* `Host` - hostname or IP address of the mongodb server; defaults to 127.0.0.1
+* `Port` - the port of the mongodb server; defaults to 27017
+* `Database` - the databases you want to monitor defaults to "admin". You can provide more than one database. Note that the first database _must_ be "admin", as it is used to perform a serverStatus()
+* `Interval` - How frequently to send metrics in seconds | collectd `Interval` setting |
+* `SendCollectionMetrics` - Whether to send collection level metrics or not; defaults to false.
+* `SendCollectionTopMetrics` - Whether to send collection level top (timing) metrics or not; defaults to false.
+* `CollectionMetricsIntervalMultiplier` - How frequently to send collection level metrics as a multiple of the configured plugin interval (e.g. if the Interval is 15 and the multiplier is 4, collection level metrics will be fetched every minute); defaults to `6`.
 
 ## SSL/TLS Configuration
 **To use SSL/TLS, install Pymongo with TLS support by running `pip install pymongo[tls]`.**
