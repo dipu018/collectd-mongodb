@@ -3,6 +3,7 @@
 #
 
 import collectd
+import collections
 import pymongo
 from distutils.version import StrictVersion as V
 
@@ -18,6 +19,13 @@ class MongoDB(object):
         self.mongo_version = None
         self.cluster_name = None
         self.dimensions = None
+        self.interval = None
+        # counter of how many times the read callback is called so that we can
+        # send collection metrics on a muliple of the main interval.
+        self.read_counter = 0
+        self.send_collection_metrics = False
+        self.send_collection_top_metrics = False
+        self.collection_metrics_interval_multiplier = 6
 
         self.use_ssl = False
         self.ca_certs_path = None
@@ -25,28 +33,27 @@ class MongoDB(object):
         self.ssl_client_key_path = None
         self.ssl_client_key_passphrase = None
 
-    def submit(self, type, type_instance, value, db=None):
+    def submit(self, type, type_instance, value, db=None, extra_dims=None):
         v = collectd.Values()
         v.plugin = self.plugin_name
 
-        # discovered dimensions
-        discovered_dims = None
-        if self.cluster_name is not None and db is not None:
-            discovered_dims = 'cluster=%s,db=%s' % (self.cluster_name, db)
-        elif self.cluster_name is not None:
-            discovered_dims = 'cluster=%s' % self.cluster_name
-        elif db is not None:
-            discovered_dims = 'db=%s' % db
+        discovered_dims = dict()
+        if db is not None:
+            discovered_dims['db'] = db
+
+        if self.cluster_name is not None:
+            discovered_dims['cluster'] = self.cluster_name
+
+        if extra_dims:
+            discovered_dims.update(extra_dims)
+
+        encoded_dims = self.encode_dims(discovered_dims)
+        if self.dimensions:
+            encoded_dims = self.dimensions + "," + encoded_dims
 
         # set plugin_instance
-        if self.dimensions is not None and discovered_dims is not None:
-            v.plugin_instance = '%s[%s,%s]' % (self.mongo_port,
-                                               self.dimensions,
-                                               discovered_dims)
-        elif self.dimensions is not None:
-            v.plugin_instance = '%s[%s]' % (self.mongo_port, self.dimensions)
-        elif discovered_dims is not None:
-            v.plugin_instance = '%s[%s]' % (self.mongo_port, discovered_dims)
+        if encoded_dims:
+            v.plugin_instance = '%s[%s]' % (self.mongo_port, encoded_dims)
         else:
             v.plugin_instance = '%s' % self.mongo_port
 
@@ -61,6 +68,13 @@ class MongoDB(object):
         v.meta = {'0': True}
 
         v.dispatch()
+
+    def encode_dims(self, dimensions):
+        dim_str = ''
+        if dimensions:
+            dim_str = ','.join(['='.join(d) for d in dimensions.items()])
+
+        return dim_str
 
     @property
     def ssl_kwargs(self):
@@ -79,6 +93,8 @@ class MongoDB(object):
         return d
 
     def do_server_status(self):
+        self.read_counter += 1
+
         try:
             con = pymongo.MongoClient(self.mongo_host, self.mongo_port,
                                       **self.ssl_kwargs)
@@ -265,6 +281,19 @@ class MongoDB(object):
             for t in ['accesses', 'misses', 'hits', 'resets', 'missRatio']:
                 self.submit('counter', 'indexCounters.' + t, index_counters[t])
 
+        top = collections.defaultdict(dict)
+        if self.should_gather_collection_metrics() and self.send_collection_top_metrics:
+            # Top must be run against the admin db
+            top_output = db.command({'top': 1})
+            for ns, top_stats in top_output['totals'].items():
+                try:
+                    db, coll = ns.split('.', 1)
+                except ValueError:
+                    continue
+
+                top[db][coll] = top_stats
+
+
         for mongo_db in self.mongo_db:
             db = con[mongo_db]
             if self.mongo_user and self.mongo_password:
@@ -290,12 +319,79 @@ class MongoDB(object):
             self.submit('gauge', 'dataSize',
                         db_stats['dataSize'], mongo_db)
 
+            if self.should_gather_collection_metrics():
+                self.gather_collection_metrics(db, top.get(mongo_db))
+
         # repl operations
         if 'opcountersRepl' in server_status:
             for k, v in server_status['opcountersRepl'].items():
                 self.submit('counter', 'opcountersRepl.' + k, v)
 
         con.close()
+
+    def should_gather_collection_metrics(self):
+        return self.send_collection_metrics and \
+                self.read_counter % self.collection_metrics_interval_multiplier == 0
+
+    def gather_collection_metrics(self, db, top):
+        for coll in db.collection_names():
+            stats = db.command('collStats', coll)
+
+            dims = dict(collection=coll)
+
+            self.submit('gauge', 'collection.size',
+                        stats['size'], db.name, dims)
+
+            self.submit('gauge', 'collection.count',
+                        stats['count'], db.name, dims)
+
+            # This can be missing in 2.6 for some reason
+            if stats.get('avgObjSize'):
+                self.submit('gauge', 'collection.avgObjSize',
+                            stats['avgObjSize'], db.name, dims)
+
+            self.submit('gauge', 'collection.storageSize',
+                        stats['storageSize'], db.name, dims)
+
+            idx_stats = dict()
+            try:
+                for idx_stat in db[coll].aggregate([{'$indexStats': {}}]):
+                    idx_stats[idx_stat['name']] = idx_stat.get('accesses', {})
+            except pymongo.errors.OperationFailure:
+                # Index stats only work on Mongo 3.2+
+                pass
+
+            for name, size in stats.get('indexSizes', {}).items():
+                indexDims = dims.copy()
+                indexDims['index'] = name
+
+                self.submit('gauge', 'collection.indexSize',
+                            size, db.name, indexDims)
+
+                if name in idx_stats and 'ops' in idx_stats[name]:
+                    self.submit('counter', 'collection.index.accesses.ops',
+                                idx_stats[name]['ops'], db.name, indexDims)
+
+            if self.send_collection_top_metrics:
+                if coll in top:
+                    for f in top[coll]:
+                        self.submit('counter', 'collection.%sTime' % f,
+                                    top[coll][f]['time'], db.name, dims)
+
+                        self.submit('counter', 'collection.%sCount' % f,
+                                    top[coll][f]['count'], db.name, dims)
+
+
+
+            if stats.get('capped', False):
+                self.submit('gauge', 'collection.max',
+                            stats['max'], db.name, dims)
+
+                if 'maxSize' in stats:
+                    self.submit('gauge', 'collection.maxSize',
+                                stats['maxSize'], db.name, dims)
+
+
 
     def log(self, msg):
         collectd.info('mongodb plugin: %s' % msg)
@@ -314,6 +410,14 @@ class MongoDB(object):
                 self.mongo_db = node.values
             elif node.key == 'Dimensions':
                 self.dimensions = node.values[0]
+            elif node.key == 'Interval':
+                self.interval = float(node.values[0])
+            elif node.key == 'SendCollectionMetrics':
+                self.send_collection_metrics = node.values[0]
+            elif node.key == 'SendCollectionTopMetrics':
+                self.send_collection_top_metrics = node.values[0]
+            elif node.key == 'CollectionMetricsIntervalMultiplier':
+                self.collection_metrics_interval_multiplier = int(node.values[0])
             elif node.key == 'UseTLS':
                 self.use_ssl = node.values[0]
             elif node.key == 'CACerts':
@@ -330,8 +434,10 @@ class MongoDB(object):
 def config(obj):
     mongodb = MongoDB()
     mongodb.config(obj)
+    interval_dict = dict() if not mongodb.interval else {"interval": mongodb.interval}
     collectd.register_read(mongodb.do_server_status,
                            name='mongo-%s:%s' % (mongodb.mongo_host,
-                                                 mongodb.mongo_port))
+                                                 mongodb.mongo_port),
+                           **interval_dict)
 
 collectd.register_config(config)
