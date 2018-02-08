@@ -101,6 +101,7 @@ class MongoDB(object):
         except Exception, e:
             self.log('ERROR: Connection failed for %s:%s' % (
                 self.mongo_host, self.mongo_port))
+            return
         db = con[self.mongo_db[0]]
         if self.mongo_user and self.mongo_password:
             db.authenticate(self.mongo_user, self.mongo_password)
