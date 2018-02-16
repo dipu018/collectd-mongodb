@@ -49,7 +49,7 @@ class MongoDB(object):
 
         encoded_dims = self.encode_dims(discovered_dims)
         if self.dimensions:
-            encoded_dims = self.dimensions + "," + encoded_dims
+            encoded_dims += ("," if encoded_dims else "") + self.dimensions
 
         # set plugin_instance
         if encoded_dims:
