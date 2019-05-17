@@ -5,7 +5,7 @@
 import collectd
 import collections
 import pymongo
-from distutils.version import StrictVersion as V
+from distutils.version import LooseVersion as V
 
 
 class MongoDB(object):
