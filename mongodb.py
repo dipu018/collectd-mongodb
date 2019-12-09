@@ -72,7 +72,7 @@ class MongoDB(object):
     def encode_dims(self, dimensions):
         dim_str = ''
         if dimensions:
-            dim_str = ','.join(['='.join(d) for d in dimensions.items()])
+            dim_str = ','.join(['='.join(d) for d in list(dimensions.items())])
 
         return dim_str
 
@@ -98,7 +98,7 @@ class MongoDB(object):
         try:
             con = pymongo.MongoClient(self.mongo_host, self.mongo_port,
                                       **self.ssl_kwargs)
-        except Exception, e:
+        except Exception as e:
             self.log('ERROR: Connection failed for %s:%s' % (
                 self.mongo_host, self.mongo_port))
             return
@@ -165,7 +165,7 @@ class MongoDB(object):
                     self.submit('gauge', 'repl.max_lag', maximal_lag)
             self.submit('gauge', 'repl.active_nodes', active_nodes)
             self.submit('gauge', 'repl.is_primary_node', is_primary_node)
-        except pymongo.errors.OperationFailure, e:
+        except pymongo.errors.OperationFailure as e:
             if str(e).find('not running with --replSet'):
                 self.log("server not running with --replSet")
                 pass
@@ -177,7 +177,7 @@ class MongoDB(object):
 
         # operations
         if 'opcounters' in server_status:
-            for k, v in server_status['opcounters'].items():
+            for k, v in list(server_status['opcounters'].items()):
                 self.submit('counter', 'opcounters.' + k, v)
 
         # memory
@@ -235,7 +235,7 @@ class MongoDB(object):
         if 'globalLock' in server_status:
             for lock_stat in ('currentQueue', 'activeClients'):
                 if lock_stat in server_status['globalLock']:
-                    for k, v in server_status['globalLock'][lock_stat].items():
+                    for k, v in list(server_status['globalLock'][lock_stat].items()):
                         if lock_stat in lock_metric_type:
                             self.submit(lock_metric_type[lock_stat],
                                         'globalLock.%s.%s' % (
@@ -247,8 +247,7 @@ class MongoDB(object):
                               'timeAcquiringMicros', 'acquireWaitCount'):
                 if lock_stat in server_status['locks']['Global']:
                     for k, v in \
-                            server_status['locks']['Global'][lock_stat]\
-                            .items():
+                            list(server_status['locks']['Global'][lock_stat].items()):
                         if k in lock_type and lock_stat in lock_metric_type:
                             self.submit(lock_metric_type[lock_stat],
                                         'lock.Global.%s.%s' % (
@@ -258,8 +257,7 @@ class MongoDB(object):
                               'timeAcquiringMicros', 'acquireWaitCount'):
                 if lock_stat in server_status['locks']['Database']:
                     for k, v in \
-                            server_status['locks']['Database'][lock_stat]\
-                            .items():
+                            list(server_status['locks']['Database'][lock_stat].items()):
                         if k in lock_type and lock_stat in lock_metric_type:
                             self.submit(lock_metric_type[lock_stat],
                                         'lock.Database.%s.%s' % (
@@ -269,7 +267,7 @@ class MongoDB(object):
             # locks for version 2.x
             for lock_stat in ('timeLockedMicros', 'timeAcquiringMicros'):
                 if lock_stat in server_status['locks']['.']:
-                    for k, v in server_status['locks']['.'][lock_stat].items():
+                    for k, v in list(server_status['locks']['.'][lock_stat].items()):
                         if k in lock_type and lock_stat in lock_metric_type:
                             self.submit(lock_metric_type[lock_stat],
                                         'lock.Global.%s.%s' % (
@@ -286,7 +284,7 @@ class MongoDB(object):
         if self.should_gather_collection_metrics() and self.send_collection_top_metrics:
             # Top must be run against the admin db
             top_output = db.command({'top': 1})
-            for ns, top_stats in top_output['totals'].items():
+            for ns, top_stats in list(top_output['totals'].items()):
                 try:
                     db, coll = ns.split('.', 1)
                 except ValueError:
@@ -325,7 +323,7 @@ class MongoDB(object):
 
         # repl operations
         if 'opcountersRepl' in server_status:
-            for k, v in server_status['opcountersRepl'].items():
+            for k, v in list(server_status['opcountersRepl'].items()):
                 self.submit('counter', 'opcountersRepl.' + k, v)
 
         con.close()
@@ -362,7 +360,7 @@ class MongoDB(object):
                 # Index stats only work on Mongo 3.2+
                 pass
 
-            for name, size in stats.get('indexSizes', {}).items():
+            for name, size in list(stats.get('indexSizes', {}).items()):
                 indexDims = dims.copy()
                 indexDims['index'] = name
 
