@@ -183,7 +183,9 @@ class MongoDB(object):
         # memory
         if 'mem' in server_status:
             for t in ['resident', 'virtual', 'mapped']:
-                self.submit('gauge', 'mem.' + t, server_status['mem'][t])
+                mem_metric = server_status['mem'].get(t)
+                if mem_metric:
+                    self.submit('gauge', 'mem.' + t, mem_metric)
 
         # network
         if 'network' in server_status:
