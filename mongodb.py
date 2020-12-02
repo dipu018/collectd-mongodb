@@ -223,6 +223,13 @@ class MongoDB(object):
                             server_status['extra_info'][
                                 'heap_usage_bytes'])
 
+        # version 3.3 and above, extra_info.heap_usage_bytes is no longer available
+        if 'tcmalloc' in server_status and 'generic' in server_status['tcmalloc'] and 'heap_size' in \
+                server_status['tcmalloc']['generic']:
+            self.submit('gauge', 'tcmalloc.generic.heap_size',
+                        server_status['tcmalloc'][
+                            'generic']['heap_size'])
+
         lock_type = {'R': 'read', 'W': 'write', 'r': 'intentShared',
                      'w': 'intentExclusive'}
         lock_metric_type = {'deadlockCount': 'counter',
