@@ -314,8 +314,9 @@ class MongoDB(object):
                         db_stats['objects'], mongo_db)
             self.submit('gauge', 'collections',
                         db_stats['collections'], mongo_db)
-            self.submit('gauge', 'numExtents',
-                        db_stats['numExtents'], mongo_db)
+            if 'numExtents' in db_stats:
+                self.submit('gauge', 'numExtents',
+                            db_stats['numExtents'], mongo_db)
             self.submit('gauge', 'indexes',
                         db_stats['indexes'], mongo_db)
 
