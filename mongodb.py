@@ -34,6 +34,10 @@ class MongoDB(object):
         self.ssl_client_key_passphrase = None
 
     def submit(self, type, type_instance, value, db=None, extra_dims=None):
+        if isinstance(value, list) or isinstance(value, dict):
+            self.log('ERROR: unsupported value type for metric %s with value %s' % (type_instance, value))
+            return
+
         v = collectd.Values()
         v.plugin = self.plugin_name
 
@@ -178,7 +182,8 @@ class MongoDB(object):
         # operations
         if 'opcounters' in server_status:
             for k, v in list(server_status['opcounters'].items()):
-                self.submit('counter', 'opcounters.' + k, v)
+                if k != "deprecated":
+                    self.submit('counter', 'opcounters.' + k, v)
 
         # memory
         if 'mem' in server_status:
